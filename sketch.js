@@ -5,6 +5,8 @@ let cameraVideo = null;
 let cameraStream = null;
 let cameraStatus = "starting";
 let cameraMessage = "Requesting camera access...";
+let activeCameraFacingMode = "environment";
+let cameraToggleButton = null;
 
 const MIN_SELECTION_SIZE = 12;
 const SINGLE_TAP_MAX_DISTANCE = 16;
@@ -40,6 +42,7 @@ function setup() {
 
   configureViewport();
   createHiddenVideoElement();
+  createCameraToggleButton();
   startCamera();
 }
 
@@ -89,7 +92,45 @@ function createHiddenVideoElement() {
   };
 }
 
-async function startCamera() {
+function createCameraToggleButton() {
+  cameraToggleButton = createButton("");
+  cameraToggleButton.attribute("type", "button");
+  cameraToggleButton.mousePressed(toggleCameraFacingMode);
+  cameraToggleButton.style("position", "fixed");
+  cameraToggleButton.style("bottom", "20px");
+  cameraToggleButton.style("right", "20px");
+  cameraToggleButton.style("z-index", "20");
+  cameraToggleButton.style("width", "56px");
+  cameraToggleButton.style("height", "56px");
+  cameraToggleButton.style("padding", "0");
+  cameraToggleButton.style("border", "0");
+  cameraToggleButton.style("border-radius", "50%");
+  cameraToggleButton.style("background", "rgba(0, 0, 0, 0.68)");
+  cameraToggleButton.style("color", "#ffffff");
+  cameraToggleButton.style("display", "flex");
+  cameraToggleButton.style("align-items", "center");
+  cameraToggleButton.style("justify-content", "center");
+  cameraToggleButton.style("touch-action", "manipulation");
+  cameraToggleButton.style("cursor", "pointer");
+  updateCameraToggleButton();
+}
+
+function updateCameraToggleButton() {
+  if (!cameraToggleButton) {
+    return;
+  }
+
+  const nextFacingMode =
+    activeCameraFacingMode === "environment" ? "Front Camera" : "Back Camera";
+
+  cameraToggleButton.attribute("aria-label", `Switch to ${nextFacingMode}`);
+  cameraToggleButton.attribute("title", `Switch to ${nextFacingMode}`);
+  cameraToggleButton.html(
+    '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 5L6 8L9 11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path><path d="M15 13L18 16L15 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path><path d="M6 8H14C16.761 8 19 10.239 19 13V16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path><path d="M18 16H10C7.239 16 5 13.761 5 11V8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>'
+  );
+}
+
+async function startCamera(targetFacingMode = activeCameraFacingMode) {
   if (!window.isSecureContext) {
     cameraStatus = "error";
     cameraMessage = "Open this app from localhost or https. file:// cannot use the camera.";
@@ -102,26 +143,43 @@ async function startCamera() {
     return;
   }
 
-  stopCamera();
-
   cameraStatus = "starting";
   cameraMessage = "Requesting camera access...";
+  if (cameraToggleButton) {
+    cameraToggleButton.attribute("disabled", "");
+    cameraToggleButton.style("opacity", "0.6");
+  }
 
   try {
-    cameraStream = await navigator.mediaDevices.getUserMedia({
+    const previousStream = cameraStream;
+    const nextStream = await navigator.mediaDevices.getUserMedia({
       audio: false,
       video: {
-        facingMode: { ideal: "environment" },
+        facingMode: { ideal: targetFacingMode },
         width: { ideal: 1920 },
         height: { ideal: 1080 },
       },
     });
 
+    cameraStream = nextStream;
+    activeCameraFacingMode = targetFacingMode;
     cameraVideo.srcObject = cameraStream;
+    updateCameraToggleButton();
     attemptVideoPlayback();
+
+    if (previousStream && previousStream !== nextStream) {
+      for (const track of previousStream.getTracks()) {
+        track.stop();
+      }
+    }
   } catch (error) {
     cameraStatus = "error";
     cameraMessage = describeCameraError(error);
+  } finally {
+    if (cameraToggleButton) {
+      cameraToggleButton.removeAttribute("disabled");
+      cameraToggleButton.style("opacity", "1");
+    }
   }
 }
 
@@ -165,6 +223,13 @@ function drawLiveCamera() {
   const targetHeight = height;
 
   const crop = getCoverCrop(sourceWidth, sourceHeight, targetWidth, targetHeight);
+  liveLayer.drawingContext.save();
+
+  if (activeCameraFacingMode === "user") {
+    liveLayer.drawingContext.translate(targetWidth, 0);
+    liveLayer.drawingContext.scale(-1, 1);
+  }
+
   liveLayer.drawingContext.drawImage(
     cameraVideo,
     crop.sx,
@@ -176,6 +241,7 @@ function drawLiveCamera() {
     targetWidth,
     targetHeight
   );
+  liveLayer.drawingContext.restore();
 }
 
 function drawFrozenPatches() {
@@ -415,6 +481,17 @@ function registerTap(selection) {
 
 function saveCurrentCanvasImage() {
   saveCanvas(`freeze-${Date.now()}`, "png");
+}
+
+async function toggleCameraFacingMode() {
+  cancelSelection();
+  multiTouchGesture = createIdleMultiTouchGesture();
+  resetTapSequence();
+
+  const nextFacingMode =
+    activeCameraFacingMode === "environment" ? "user" : "environment";
+
+  await startCamera(nextFacingMode);
 }
 
 function createIdleMultiTouchGesture() {
