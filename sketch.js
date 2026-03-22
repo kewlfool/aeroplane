@@ -7,6 +7,7 @@ let cameraStatus = "starting";
 let cameraMessage = "Requesting camera access...";
 let activeCameraFacingMode = "environment";
 let cameraToggleButton = null;
+let lastCameraToggleAt = 0;
 
 const MIN_SELECTION_SIZE = 12;
 const SINGLE_TAP_MAX_DISTANCE = 16;
@@ -95,7 +96,6 @@ function createHiddenVideoElement() {
 function createCameraToggleButton() {
   cameraToggleButton = createButton("");
   cameraToggleButton.attribute("type", "button");
-  cameraToggleButton.mousePressed(toggleCameraFacingMode);
   cameraToggleButton.style("position", "fixed");
   cameraToggleButton.style("bottom", "20px");
   cameraToggleButton.style("right", "20px");
@@ -111,7 +111,12 @@ function createCameraToggleButton() {
   cameraToggleButton.style("align-items", "center");
   cameraToggleButton.style("justify-content", "center");
   cameraToggleButton.style("touch-action", "manipulation");
+  cameraToggleButton.style("pointer-events", "auto");
   cameraToggleButton.style("cursor", "pointer");
+  cameraToggleButton.elt.addEventListener("click", handleCameraToggleInteraction);
+  cameraToggleButton.elt.addEventListener("touchend", handleCameraToggleInteraction, {
+    passive: false,
+  });
   updateCameraToggleButton();
 }
 
@@ -492,6 +497,22 @@ async function toggleCameraFacingMode() {
     activeCameraFacingMode === "environment" ? "user" : "environment";
 
   await startCamera(nextFacingMode);
+}
+
+function handleCameraToggleInteraction(event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  const now = millis();
+
+  if (now - lastCameraToggleAt < 300) {
+    return;
+  }
+
+  lastCameraToggleAt = now;
+  toggleCameraFacingMode();
 }
 
 function createIdleMultiTouchGesture() {
